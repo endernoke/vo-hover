@@ -85,6 +85,7 @@ struct SettingsView: View {
 struct GeneralPane: View {
     @AppStorage(PrefKey.enabled) private var enabled = true
     @AppStorage(PrefKey.showInMenuBar) private var showInMenuBar = true
+    @AppStorage(PrefKey.announceStartQuit) private var announceStartQuit = true
     @State private var openAtLogin = SMAppService.mainApp.status == .enabled
     @State private var axTrusted = AXIsProcessTrusted()
     @State private var automation = VoiceOver.automationPermission()
@@ -125,6 +126,10 @@ struct GeneralPane: View {
                 Toggle(isOn: $showInMenuBar) {
                     Text("Show in menu bar")
                     Text("When hidden, open VOHover from Finder or Spotlight to return to these settings.")
+                }
+                Toggle(isOn: $announceStartQuit) {
+                    Text("Announce when VOHover starts and quits")
+                    Text("VoiceOver says “VOHover started” and “VOHover quit”, so you know when hover speech is available.")
                 }
             }
         }

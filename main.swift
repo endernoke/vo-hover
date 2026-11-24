@@ -42,7 +42,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                                                name: UserDefaults.didChangeNotification, object: nil)
         updateStatusItem()
         engine.start()
+        if Prefs.announceStartQuit {
+            VoiceOver.say(Prefs.enabled ? "VOHover started" : "VOHover started. Hover speech off")
+        }
         if !launchedInBackground { showSettings(nil) }
+    }
+
+    // Quitting (Command-Q, Dock, menu bar, logout) silently stops hover speech; say so.
+    func applicationWillTerminate(_ notification: Notification) {
+        guard Prefs.announceStartQuit else { return }
+        VoiceOver.say("VOHover quit")
+        VoiceOver.waitUntilSent()
     }
 
     // Opening the app again from Finder/Spotlight shows Settings.

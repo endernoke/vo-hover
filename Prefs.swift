@@ -13,6 +13,7 @@ enum PrefKey {
     static let readContainer = "readContainer"
     static let textAreaReadsLine = "textAreaReadsLine"
     static let showInMenuBar = "showInMenuBar"
+    static let announceStartQuit = "announceStartQuit"
 }
 
 enum Prefs {
@@ -29,6 +30,7 @@ enum Prefs {
             PrefKey.readContainer: true,
             PrefKey.textAreaReadsLine: true,
             PrefKey.showInMenuBar: true,
+            PrefKey.announceStartQuit: true,
         ])
     }
 
@@ -44,4 +46,5 @@ enum Prefs {
     static var readContainer: Bool { defaults.bool(forKey: PrefKey.readContainer) }
     static var textAreaReadsLine: Bool { defaults.bool(forKey: PrefKey.textAreaReadsLine) }
     static var showInMenuBar: Bool { defaults.bool(forKey: PrefKey.showInMenuBar) }
+    static var announceStartQuit: Bool { defaults.bool(forKey: PrefKey.announceStartQuit) }
 }

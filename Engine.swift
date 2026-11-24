@@ -23,6 +23,14 @@ enum VoiceOver {
         send(NSAppleEventDescriptor(string: text))
     }
 
+    /// Blocks until the phrases queued so far have been handed to VoiceOver, or until
+    /// `timeout` passes. Used before quitting, so the last phrase isn't lost.
+    static func waitUntilSent(timeout: TimeInterval = 1) {
+        let done = DispatchSemaphore(value: 0)
+        speechQueue.async { done.signal() }
+        _ = done.wait(timeout: .now() + timeout)
+    }
+
     /// Speaks VoiceOver's own description of the item under the mouse ("Describe Item in Mouse Pointer").
     static func sayMouseSummary() {
         send(NSAppleEventDescriptor(enumCode: fourCharCode("mosU")))
