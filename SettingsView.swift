@@ -309,9 +309,7 @@ struct VerbosityPane: View {
 
 // MARK: - Commands
 
-/// Installed by install.sh.
-private let toggleScriptURL = FileManager.default.homeDirectoryForCurrentUser
-    .appending(path: "Library/Scripts/VOHover/Toggle VOHover.scpt")
+private let toggleScriptURL = ToggleScript.url
 
 struct CommandsPane: View {
     @State private var copied = false

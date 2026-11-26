@@ -5,7 +5,7 @@ import Cocoa
 import ApplicationServices
 import os
 
-let logger = Logger(subsystem: "local.vohover", category: "engine")
+let logger = Logger(subsystem: "io.github.endernoke.vohover", category: "engine")
 
 // MARK: - VoiceOver
 
@@ -30,7 +30,7 @@ enum VoiceOver {
 
     /// Speech is sent from its own serial queue: phrases stay in order, and the system's
     /// Automation consent alert (shown before the first event) never blocks the main thread.
-    private static let speechQueue = DispatchQueue(label: "local.vohover.speech", qos: .userInitiated)
+    private static let speechQueue = DispatchQueue(label: "io.github.endernoke.vohover.speech", qos: .userInitiated)
 
     /// Sends VoiceOver's scripting `output` event (class 'VOAS', id 'outp') directly,
     /// so text needs no AppleScript escaping and nothing is compiled per phrase.
@@ -223,7 +223,7 @@ private func target(at point: CGPoint) -> HoverTarget? {
 /// main thread: VOHover's own windows and menus are answered by the main thread, which
 /// is also busy while a menu is open. All state below is confined to `queue`.
 final class HoverEngine {
-    private let queue = DispatchQueue(label: "local.vohover.engine", qos: .userInteractive)
+    private let queue = DispatchQueue(label: "io.github.endernoke.vohover.engine", qos: .userInteractive)
     private var timer: DispatchSourceTimer?
     private var lastMouse: CGPoint?
     private var candidate: HoverTarget?

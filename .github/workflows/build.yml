@@ -1,0 +1,108 @@
+# Builds a universal (Apple silicon + Intel) VOHover.app on every push and pull request.
+# When a GitHub Release is published (the "Draft a new release" button or
+# `gh release create`, either of which also creates the v<version> tag), it attaches
+# VOHover-<version>.dmg to that release and, for non-prerelease versions with
+# HOMEBREW_TAP_TOKEN set, updates the cask in endernoke/homebrew-tap.
+#
+# Optional secrets:
+#   MACOS_CERT_P12, MACOS_CERT_PASSWORD  base64 .p12 of a self-signed code-signing
+#       certificate. A stable certificate keeps users' Accessibility/Automation
+#       grants across updates; without it the app is signed ad hoc.
+#   HOMEBREW_TAP_TOKEN  fine-grained token with Contents read/write on
+#       endernoke/homebrew-tap.
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    env:
+      MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+      MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches Info.plist version
+        if: github.event_name == 'release'
+        run: |
+          VERSION=$(plutil -extract CFBundleShortVersionString raw Info.plist)
+          test "$GITHUB_REF_NAME" = "v$VERSION" \
+            || { echo "Tag $GITHUB_REF_NAME does not match Info.plist version $VERSION"; exit 1; }
+
+      - name: Import signing certificate
+        if: env.MACOS_CERT_P12 != ''
+        run: |
+          KC="$RUNNER_TEMP/signing.keychain-db"
+          KC_PW=$(uuidgen)
+          echo "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KC_PW" "$KC"
+          security set-keychain-settings -lut 3600 "$KC"
+          security unlock-keychain -p "$KC_PW" "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PW" "$KC"
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          # A self-signed certificate must be trusted for code signing before codesign accepts it.
+          security find-certificate -p "$KC" > "$RUNNER_TEMP/cert.pem"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign \
+            -k /Library/Keychains/System.keychain "$RUNNER_TEMP/cert.pem"
+          ID=$(security find-identity -v -p codesigning "$KC" | awk 'NR==1{print $2}')
+          test -n "$ID" || { echo "No code-signing identity in certificate"; exit 1; }
+          echo "SIGN_IDENTITY=$ID" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: |
+          SIGN_IDENTITY=${SIGN_IDENTITY:--} ./build.sh --dmg
+          codesign --verify --deep --strict build/VOHover.app
+          test "$(lipo -archs build/VOHover.app/Contents/MacOS/VOHover)" = "x86_64 arm64"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VOHover
+          path: build/VOHover-*.dmg
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: VOHover
+
+      - name: Attach DMG to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # --clobber replaces the DMG when the workflow is re-run for the same release.
+        run: gh release upload "$GITHUB_REF_NAME" VOHover-*.dmg --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Update Homebrew cask
+        if: env.HOMEBREW_TAP_TOKEN != '' && !github.event.release.prerelease
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          SHA=$(sha256sum "VOHover-$VERSION.dmg" | cut -d' ' -f1)
+          git clone "https://x-access-token:$HOMEBREW_TAP_TOKEN@github.com/endernoke/homebrew-tap.git" tap
+          cd tap
+          sed -i -E \
+            -e "s/^  version \".*\"/  version \"$VERSION\"/" \
+            -e "s/^  sha256 \".*\"/  sha256 \"$SHA\"/" \
+            Casks/vohover.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then echo "Cask already at $VERSION."; exit 0; fi
+          git commit -am "vohover $VERSION"
+          git push

@@ -1,4 +1,4 @@
-// User preferences (UserDefaults domain "local.vohover"). The engine reads them live,
+// User preferences (UserDefaults domain "io.github.endernoke.vohover"). The engine reads them live,
 // from its background queue (UserDefaults is thread-safe); Settings binds them with @AppStorage.
 
 import Foundation

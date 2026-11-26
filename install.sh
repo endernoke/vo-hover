@@ -1,47 +1,32 @@
 #!/bin/zsh
-# Builds VOHover.app, installs it to ~/Applications, installs the toggle AppleScript
-# for binding in VoiceOver Commands, and (re)launches the app.
-# To start VOHover at login, turn on Settings > General > Open at login.
+# Builds VOHover.app, installs it to ~/Applications and (re)launches it.
+# For installing from source and for development; releases use the DMG or Homebrew.
 #   ./install.sh           install and open Settings
 #   ./install.sh --quiet   install and start in the background
 set -euo pipefail
 cd "${0:A:h}"
 
+case "${1:-}" in
+  "" | --quiet) ;;
+  *) echo "Usage: $0 [--quiet]" >&2; exit 2 ;;
+esac
+
 APP="$HOME/Applications/VOHover.app"
-LABEL="local.vohover"
-SCRIPTS="$HOME/Library/Scripts/VOHover"
+if [[ -d /Applications/VOHover.app ]]; then
+  echo "Note: /Applications/VOHover.app (for example from Homebrew) is also installed." >&2
+  echo "      Remove one copy so macOS doesn't mix up their permissions and login item." >&2
+fi
 
-mkdir -p build "$APP/Contents/MacOS" "$SCRIPTS"
-swiftc -O -o build/VOHover Prefs.swift Engine.swift SettingsView.swift main.swift
+./build.sh
 
-cat > "$APP/Contents/Info.plist" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>CFBundleIdentifier</key><string>$LABEL</string>
-  <key>CFBundleName</key><string>VOHover</string>
-  <key>CFBundleDisplayName</key><string>VOHover</string>
-  <key>CFBundleExecutable</key><string>VOHover</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.1</string>
-  <key>CFBundleVersion</key><string>2</string>
-  <key>LSMinimumSystemVersion</key><string>14.0</string>
-  <key>LSUIElement</key><true/>
-  <key>NSAppleEventsUsageDescription</key><string>VOHover speaks the item under the pointer through VoiceOver.</string>
-</dict></plist>
-EOF
-
-# Stop any running copy before replacing the binary.
+# Stop any running copy before replacing it (SIGTERM; wait up to 5 seconds).
 pkill -x VOHover 2>/dev/null || true
-while pgrep -qx VOHover; do sleep 0.1; done
+for _ in {1..50}; do pgrep -qx VOHover || break; sleep 0.1; done
+pgrep -qx VOHover && { echo "VOHover didn't quit; quit it and run again." >&2; exit 1; }
 
-cp build/VOHover "$APP/Contents/MacOS/VOHover"
-# A stable signing identity keeps the Accessibility/Automation grants across rebuilds;
-# ad-hoc signing ("-") works too, but each rebuild then needs the grants again.
-SIGN_ID=$(security find-identity -v -p codesigning | awk '/Apple Development/{print $2; exit}')
-codesign --force --sign "${SIGN_ID:--}" "$APP"
-
-osacompile -o "$SCRIPTS/Toggle VOHover.scpt" -e 'do shell script "pkill -USR1 -x VOHover || true"'
+mkdir -p "${APP:h}"
+rm -rf "$APP"
+ditto build/VOHover.app "$APP"
 
 if [[ "${1:-}" == "--quiet" ]]; then
   open -g "$APP" --args --background

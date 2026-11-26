@@ -3,7 +3,7 @@
 //
 // Toggle on/off:  pkill -USR1 -x VOHover   (bind via VoiceOver Commands > Run AppleScript)
 // Launch flag:    --background   start without opening Settings
-// Debug log:      log stream --level debug --predicate 'subsystem == "local.vohover"'
+// Debug log:      log stream --level debug --predicate 'subsystem == "io.github.endernoke.vohover"'
 
 import Cocoa
 import SwiftUI
@@ -40,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
         NotificationCenter.default.addObserver(self, selector: #selector(defaultsChanged),
                                                name: UserDefaults.didChangeNotification, object: nil)
+        ToggleScript.installIfNeeded()
         updateStatusItem()
         engine.start()
         if !launchedInBackground { showSettings(nil) }
