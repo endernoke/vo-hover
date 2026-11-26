@@ -217,31 +217,121 @@ private func target(at point: CGPoint) -> HoverTarget? {
     return nil
 }
 
+// MARK: - Pointer movement
+
+/// Tells user pointer movement apart from other pointer motion. Mice, trackpads and
+/// assistive input (Mouse Keys, Head Pointer, ...) post mouse-moved events. Zoom panning to
+/// follow VoiceOver focus, and apps warping the pointer, move it without posting any event.
+/// A listen-only event tap therefore sees exactly the movements the user made.
+private final class PointerMoveMonitor {
+    /// Whether a movement has been reported to `onMove` and not yet taken with `takeMoved()`.
+    private let pending = OSAllocatedUnfairLock(initialState: false)
+    private var tap: CFMachPort?
+    private let onMove: () -> Void
+
+    /// `onMove` runs on the tap's thread at the first movement after each `takeMoved()`,
+    /// so a burst of events costs one call.
+    init(onMove: @escaping () -> Void) { self.onMove = onMove }
+
+    var isInstalled: Bool { tap != nil }
+
+    /// Whether a movement is waiting to be taken.
+    var hasPendingMove: Bool { pending.withLock { $0 } }
+
+    /// Marks pending movements as handled; the next movement calls `onMove` again.
+    func takeMoved() { pending.withLock { $0 = false } }
+
+    /// Creates the event tap once Accessibility access allows it; returns whether it is running.
+    func installIfNeeded() -> Bool {
+        if tap != nil { return true }
+        let types: [CGEventType] = [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged]
+        let mask = types.reduce(CGEventMask(0)) { $0 | (1 << $1.rawValue) }
+        let callback: CGEventTapCallBack = { _, type, event, info in
+            let monitor = Unmanaged<PointerMoveMonitor>.fromOpaque(info!).takeUnretainedValue()
+            if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                if let tap = monitor.tap { CGEvent.tapEnable(tap: tap, enable: true) }
+            } else if monitor.pending.withLock({ p in defer { p = true }; return !p }) {
+                monitor.onMove()
+            }
+            return Unmanaged.passUnretained(event)
+        }
+        guard let port = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .tailAppendEventTap,
+                                           options: .listenOnly, eventsOfInterest: mask, callback: callback,
+                                           userInfo: Unmanaged.passUnretained(self).toOpaque())
+        else { return false }
+        tap = port
+        // Its own thread: the main thread is busy while a menu is open.
+        let source = CFMachPortCreateRunLoopSource(nil, port, 0)
+        let thread = Thread {
+            CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
+            CFRunLoopRun()
+        }
+        thread.name = "io.github.endernoke.vohover.pointer"
+        thread.qualityOfService = .userInteractive
+        thread.start()
+        logger.notice("Pointer event tap installed")
+        return true
+    }
+}
+
 // MARK: - Engine
 
-/// Polls the pointer on a background queue. Accessibility queries must not run on the
-/// main thread: VOHover's own windows and menus are answered by the main thread, which
-/// is also busy while a menu is open. All state below is confined to `queue`.
+/// Speaks the item under the pointer once it has rested there for the dwell delay. Driven by
+/// the user's pointer movements (see `PointerMoveMonitor`), so it does nothing while the mouse
+/// is still, and Zoom dragging the pointer along as VoiceOver moves focus doesn't make it speak.
+///
+/// Accessibility queries must not run on the main thread: VOHover's own windows and menus
+/// are answered by the main thread, which is also busy while a menu is open. All state
+/// below is confined to `queue`.
 final class HoverEngine {
+    /// At most one lookup per interval while the pointer moves: events arrive at 60-120+ Hz
+    /// and a lookup can block for up to the messaging timeout.
+    private static let lookupInterval: DispatchTimeInterval = .milliseconds(50)
+    /// How often to retry until Accessibility access allows the event tap.
+    private static let setupRetryInterval: DispatchTimeInterval = .seconds(1)
+
     private let queue = DispatchQueue(label: "io.github.endernoke.vohover.engine", qos: .userInteractive)
-    private var timer: DispatchSourceTimer?
+    private lazy var moves = PointerMoveMonitor { [weak self] in
+        guard let self else { return }
+        queue.async { self.scheduleLookup() }
+    }
+    private var setupTimer: DispatchSourceTimer?
+    private var lookupScheduled = false
+    private var lastLookup: DispatchTime?
+    /// Where the pointer was at the last lookup.
     private var lastMouse: CGPoint?
     private var candidate: HoverTarget?
     private var candidateSince = ContinuousClock.now
+    private var dwellTimer: DispatchWorkItem?
     private var spoken: HoverTarget?
     private var promptedForAccess = false
 
     func start() {
-        let t = DispatchSource.makeTimerSource(queue: queue)
-        t.schedule(deadline: .now(), repeating: .milliseconds(50), leeway: .milliseconds(10))
-        t.setEventHandler { [weak self] in self?.tick() }
-        t.resume()
-        timer = t
+        queue.async { [self] in
+            let t = DispatchSource.makeTimerSource(queue: queue)
+            t.schedule(deadline: .now(), repeating: Self.setupRetryInterval, leeway: .milliseconds(250))
+            t.setEventHandler { [weak self] in self?.trySetUp() }
+            t.resume()
+            setupTimer = t
+        }
     }
 
-    /// Forget the last item so the next one under the pointer is spoken again.
+    /// Forget the last item and speak the one under the pointer again.
     func reset() {
-        queue.async { [self] in spoken = nil; candidate = nil; lastMouse = nil }
+        queue.async { [self] in
+            spoken = nil
+            setCandidate(nil)
+            scheduleLookup()
+        }
+    }
+
+    /// Installs the event tap once hover speech needs it and Accessibility access allows it,
+    /// then stops retrying and reads the item under the pointer.
+    private func trySetUp() {
+        guard Prefs.enabled, VoiceOver.isRunning, checkTrust(), moves.installIfNeeded() else { return }
+        setupTimer?.cancel()
+        setupTimer = nil
+        scheduleLookup()
     }
 
     /// Asks for Accessibility access once per launch, when hover speech
@@ -258,24 +348,58 @@ final class HoverEngine {
         return false
     }
 
-    private func tick() {
-        guard Prefs.enabled, VoiceOver.isRunning, checkTrust(),
-              let mouse = CGEvent(source: nil)?.location   // global, top-left origin
-        else { return }
+    private var isActive: Bool { moves.isInstalled && Prefs.enabled && VoiceOver.isRunning }
 
-        if mouse != lastMouse {
-            lastMouse = mouse
-            let hit = target(at: mouse)
-            let unchanged = hit.map { $0.isSameItem(as: candidate) } ?? (candidate == nil)
-            if !unchanged {
-                candidate = hit
-                candidateSince = .now
-            }
+    /// Looks up the item under the pointer now, or when the lookup interval allows.
+    private func scheduleLookup() {
+        guard !lookupScheduled else { return }
+        lookupScheduled = true
+        let deadline = max(.now(), lastLookup.map { $0 + Self.lookupInterval } ?? .now())
+        queue.asyncAfter(deadline: deadline) { [weak self] in self?.lookUp() }
+    }
+
+    private func lookUp() {
+        lookupScheduled = false
+        lastLookup = .now()
+        moves.takeMoved()   // movements from here on schedule another lookup
+        guard isActive, let mouse = CGEvent(source: nil)?.location else { return }   // global, top-left origin
+        lastMouse = mouse
+        let hit = target(at: mouse)
+        let unchanged = hit.map { $0.isSameItem(as: candidate) } ?? (candidate == nil)
+        if !unchanged {
+            setCandidate(hit)
+        } else if dwellTimer == nil {
+            scheduleDwell()   // the dwell delay ran out while the pointer was moving within the item
         }
+    }
 
-        guard let c = candidate, !c.isSameItem(as: spoken),
-              ContinuousClock.now - candidateSince >= .seconds(Prefs.dwell)
-        else { return }
+    /// Sets the item to speak once the pointer has rested on it for the dwell delay.
+    private func setCandidate(_ c: HoverTarget?) {
+        candidate = c
+        candidateSince = .now
+        dwellTimer?.cancel()
+        dwellTimer = nil
+        scheduleDwell()
+    }
+
+    /// Calls `dwellElapsed()` when the candidate has been under the pointer for the dwell delay.
+    private func scheduleDwell() {
+        guard let c = candidate, !c.isSameItem(as: spoken) else { return }
+        let remaining = max(0, Prefs.dwell - (ContinuousClock.now - candidateSince) / .seconds(1))
+        let work = DispatchWorkItem { [weak self] in self?.dwellElapsed() }
+        dwellTimer = work
+        queue.asyncAfter(deadline: .now() + remaining, execute: work)
+    }
+
+    private func dwellElapsed() {
+        dwellTimer = nil
+        guard isActive, let c = candidate, !c.isSameItem(as: spoken) else { return }
+        if CGEvent(source: nil)?.location != lastMouse {
+            // A user movement since the lookup gets a lookup of its own. Otherwise something
+            // else (Zoom, an app) moved the pointer, and the item may no longer be under it.
+            if !moves.hasPendingMove { candidate = nil }
+            return
+        }
         spoken = c
         if Prefs.useVOSummary && c.line == nil {
             VoiceOver.sayMouseSummary()
