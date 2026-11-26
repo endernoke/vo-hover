@@ -6,6 +6,7 @@ import Foundation
 enum PrefKey {
     static let enabled = "enabled"
     static let dwell = "dwell"
+    static let onlyWhenZoomed = "onlyWhenZoomed"
     static let useVOSummary = "useVOSummary"
     static let includeRole = "includeRole"
     static let includeValue = "includeValue"
@@ -22,6 +23,7 @@ enum Prefs {
         defaults.register(defaults: [
             PrefKey.enabled: true,
             PrefKey.dwell: 0.15,
+            PrefKey.onlyWhenZoomed: false,
             PrefKey.useVOSummary: false,
             PrefKey.includeRole: true,
             PrefKey.includeValue: true,
@@ -37,6 +39,8 @@ enum Prefs {
         set { defaults.set(newValue, forKey: PrefKey.enabled) }
     }
     static var dwell: Double { defaults.double(forKey: PrefKey.dwell) }
+    /// Speak only while Zoom magnifies the screen, like Read & Speak's "Only when zoomed".
+    static var onlyWhenZoomed: Bool { defaults.bool(forKey: PrefKey.onlyWhenZoomed) }
     static var useVOSummary: Bool { defaults.bool(forKey: PrefKey.useVOSummary) }
     static var includeRole: Bool { defaults.bool(forKey: PrefKey.includeRole) }
     static var includeValue: Bool { defaults.bool(forKey: PrefKey.includeValue) }

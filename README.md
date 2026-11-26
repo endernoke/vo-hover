@@ -16,6 +16,7 @@ VOHover speaks the item under the pointer through VoiceOver's own speech. There 
 ## Features
 
 - **Hands-free hover reading:** speaks an item when the pointer rests on it, after a delay you can adjust. It reads the whole item, however long.
+- **Only when zoomed:** optionally speaks only while Zoom magnifies the screen.
 - **Text areas:** reads the line under the pointer, for example in Terminal and TextEdit.
 - **VoiceOver-style wording:** name, then value, type and state, for example "Volume, 50%, slider". You choose the verbosity. Alternatively, it can use VoiceOver's own "Describe Item in Mouse Pointer" wording.
 - **Unlabeled icons:** when an item has no label, VOHover reads the button or other item that contains it.

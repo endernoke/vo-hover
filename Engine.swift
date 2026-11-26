@@ -348,7 +348,9 @@ final class HoverEngine {
         return false
     }
 
-    private var isActive: Bool { moves.isInstalled && Prefs.enabled && VoiceOver.isRunning }
+    private var isActive: Bool {
+        moves.isInstalled && Prefs.enabled && (!Prefs.onlyWhenZoomed || UAZoomEnabled()) && VoiceOver.isRunning
+    }
 
     /// Looks up the item under the pointer now, or when the lookup interval allows.
     private func scheduleLookup() {

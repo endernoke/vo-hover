@@ -203,6 +203,7 @@ private func openPrivacy(_ anchor: String) {
 
 struct PointerPane: View {
     @AppStorage(PrefKey.dwell) private var dwell = 0.15
+    @AppStorage(PrefKey.onlyWhenZoomed) private var onlyWhenZoomed = false
     @AppStorage(PrefKey.useVOSummary) private var useVOSummary = false
     @AppStorage(PrefKey.readContainer) private var readContainer = true
     @AppStorage(PrefKey.textAreaReadsLine) private var textAreaReadsLine = true
@@ -210,6 +211,11 @@ struct PointerPane: View {
     var body: some View {
         Form {
             Section {
+                Picker("Speak item under the pointer", selection: $onlyWhenZoomed) {
+                    Text("Only when zoomed").tag(true)
+                    Text("Always").tag(false)
+                }
+
                 LabeledContent {
                     Slider(value: $dwell, in: 0...1, step: 0.05) {
                         Text("Delay before speaking")
