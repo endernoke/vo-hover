@@ -39,6 +39,9 @@ lipo -create -output "$APP/Contents/MacOS/VOHover" build/VOHover-arm64 build/VOH
 rm build/VOHover-arm64 build/VOHover-x86_64
 
 cp Info.plist "$APP/Contents/Info.plist"
+# App icon, drawn by icon/make-icon.swift (run `swift icon/make-icon.swift icon/AppIcon.icns` after changing it).
+mkdir -p "$APP/Contents/Resources"
+cp icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 plutil -insert CFBundleVersion -string "$VERSION" "$APP/Contents/Info.plist"
 
 # A stable signing identity keeps the Accessibility/Automation grants across updates;

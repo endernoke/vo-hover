@@ -8,6 +8,8 @@
 	<string>VOHover</string>
 	<key>CFBundleExecutable</key>
 	<string>VOHover</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>io.github.endernoke.vohover</string>
 	<key>CFBundleInfoDictionaryVersion</key>
