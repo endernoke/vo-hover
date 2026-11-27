@@ -36,7 +36,7 @@ VOHover speaks the item under the pointer through VoiceOver's own speech. There 
 brew install --cask endernoke/tap/vohover
 ```
 
-VOHover isn't signed with an Apple Developer ID, so the cask removes the download's quarantine flag to let it open. Each update may need the Accessibility permission allowed again.
+VOHover isn't notarized by Apple, so macOS blocks it the first time you open it: open System Settings > Privacy & Security and click Open Anyway. You may need to do this again after an update.
 
 ### Download
 
